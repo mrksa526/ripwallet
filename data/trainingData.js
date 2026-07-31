@@ -32,6 +32,12 @@ window.FC_T12_UNLOCK_LEVEL = 10; // T12 troops require FC10
 window.TRAINING_RESEARCH_MIN = 0;
 window.TRAINING_RESEARCH_MAX = 10;
 
+// T12 Research: separate per-troop research that further reduces T12 costs
+// on top of the T11-based calc, only relevant/visible when that troop's FC=10.
+// Level 0 = 0% extra reduction, level 10 = 25% extra reduction (2.5%/level).
+window.T12_RESEARCH_MIN = 0;
+window.T12_RESEARCH_MAX = 10;
+
 window.troopData = {
     inf: {
         t10: { wood: 2091, meat: 2788, coal: 488, iron: 102, time: 152, power: 121 },

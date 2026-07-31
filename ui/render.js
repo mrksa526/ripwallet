@@ -124,7 +124,7 @@ const Renderers = {
         // Save current state before re-render (for language switching)
         const savedTab = window.TrainingManager ? window.TrainingManager.activeTabId : "tab1";
         const savedInputs = {};
-        const inputIds = ["g_speedInf", "g_speedLanc", "g_speedMark", "c1_inf10", "c1_inf11", "c1_inf12", "c1_lanc10", "c1_lanc11", "c1_lanc12", "c1_mark10", "c1_mark11", "c1_mark12", "s2_d", "s2_h", "s2_m", "s2_cap", "s2_pInf", "s2_pLanc", "s2_pMark", "u_t10_inf", "u_t11_inf", "u_t10_lanc", "u_t11_lanc", "u_t10_mark", "u_t11_mark", "s4_currentPower", "s4_targetPower", "s4_inf_t10", "s4_inf_t11", "s4_inf_t12", "s4_lanc_t10", "s4_lanc_t11", "s4_lanc_t12", "s4_mark_t10", "s4_mark_t11", "s4_mark_t12", "s4_ratioInf", "s4_ratioLanc", "s4_ratioMark", "fc_inf", "fc_lanc", "fc_mark", "rs_inf", "rs_lanc", "rs_mark"];
+        const inputIds = ["g_speedInf", "g_speedLanc", "g_speedMark", "c1_inf10", "c1_inf11", "c1_inf12", "c1_lanc10", "c1_lanc11", "c1_lanc12", "c1_mark10", "c1_mark11", "c1_mark12", "s2_d", "s2_h", "s2_m", "s2_cap", "s2_pInf", "s2_pLanc", "s2_pMark", "u_t10_inf", "u_t11_inf", "u_t10_lanc", "u_t11_lanc", "u_t10_mark", "u_t11_mark", "s4_currentPower", "s4_targetPower", "s4_inf_t10", "s4_inf_t11", "s4_inf_t12", "s4_lanc_t10", "s4_lanc_t11", "s4_lanc_t12", "s4_mark_t10", "s4_mark_t11", "s4_mark_t12", "s4_ratioInf", "s4_ratioLanc", "s4_ratioMark", "fc_inf", "fc_lanc", "fc_mark", "rs_inf", "rs_lanc", "rs_mark", "t12rs_inf", "t12rs_lanc", "t12rs_mark"];
         inputIds.forEach(id => {
             const el = document.getElementById(id);
             if (el)
@@ -194,7 +194,7 @@ const Renderers = {
             </div>
         `;
 
-        ["s2_tier", "fc_inf", "fc_lanc", "fc_mark", "rs_inf", "rs_lanc", "rs_mark"].forEach(id => {
+        ["s2_tier", "fc_inf", "fc_lanc", "fc_mark", "rs_inf", "rs_lanc", "rs_mark", "t12rs_inf", "t12rs_lanc", "t12rs_mark"].forEach(id => {
             if (window.TrainingManager) TrainingManager._initCustomDropdown(id);
         });
 
@@ -301,6 +301,16 @@ const Renderers = {
             mark: window.__trainImg_research_inf
         };
 
+        const t12ResearchIcons = {
+            inf: window.__trainImg_research_t12_inf,
+            lanc: window.__trainImg_research_t12_lanc,
+            mark: window.__trainImg_research_t12_mark
+        };
+        const t12rsOptions = [];
+        for (let lvl = (window.T12_RESEARCH_MIN || 0); lvl <= (window.T12_RESEARCH_MAX || 10); lvl++) {
+            t12rsOptions.push({ value: String(lvl), label: String(lvl) });
+        }
+
         const speedRow = types.map(t => `
             <div class="tb-col"><input type="text" inputmode="numeric" id="${speedIds[t.key]}" placeholder="0" class="action-btn"></div>
         `).join("");
@@ -313,6 +323,13 @@ const Renderers = {
             <div class="tb-col">
                 ${researchIcons[t.key] ? `<img src="${researchIcons[t.key]}" alt="" style="width:24px;height:24px;object-fit:contain;display:block;margin:0 auto 4px;">` : ""}
                 ${this._dropdown(`rs_${t.key}`, rsOptions, "10")}
+            </div>
+        `).join("");
+
+        const t12rsRow = types.map(t => `
+            <div class="tb-col" id="t12rs_${t.key}_cell">
+                ${t12ResearchIcons[t.key] ? `<img src="${t12ResearchIcons[t.key]}" alt="" style="width:24px;height:24px;object-fit:contain;display:block;margin:0 auto 4px;">` : ""}
+                ${this._dropdown(`t12rs_${t.key}`, t12rsOptions, "0")}
             </div>
         `).join("");
 
@@ -333,6 +350,10 @@ const Renderers = {
             <div class="tb-row">
                 <div class="tb-label">${T("lblT11Research")}</div>
                 ${rsRow}
+            </div>
+            <div class="tb-row" id="t12rs_row">
+                <div class="tb-label">${T("lblT12Research")}</div>
+                ${t12rsRow}
             </div>
         </div>`;
     },

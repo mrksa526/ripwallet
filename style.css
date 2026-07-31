@@ -407,17 +407,23 @@ html[dir="rtl"] .training-custom-dropdown-menu { left:auto; right:0; }
 /* ---- TRAINING BUFFS INLINE ---- */
 .buffs-inline { display:flex; gap:15px; align-items:flex-start; }
 .training-buffs-table { display:flex; flex-direction:column; gap:4px; }
-.training-buffs-table .tb-row { display:grid; grid-template-columns:88px repeat(3, 1fr); gap:10px; align-items:center; padding:8px 0; }
+.training-buffs-table .tb-row { display:grid; grid-template-columns:70px repeat(3, 1fr); gap:6px; align-items:center; padding:6px 0; }
 .training-buffs-table .tb-row:not(.tb-header):not(:last-child) { border-bottom:1px solid rgba(255,255,255,0.04); }
-.training-buffs-table .tb-row.tb-header { padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.08); }
-.training-buffs-table .tb-col { text-align:center; min-width:0; }
-.training-buffs-table .tb-label { font-size:12px; color:#b5c3d7; font-weight:600; line-height:1.2; }
+.training-buffs-table .tb-row.tb-header { padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08); }
+.training-buffs-table .tb-col { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; min-width:0; }
+.training-buffs-table .tb-label { font-size:11px; color:#b5c3d7; font-weight:600; line-height:1.2; text-align:center; }
+.training-buffs-table .training-select-wrapper { width:100%; max-width:86px; margin:0 auto; }
+.training-buffs-table .training-custom-trigger { min-height:26px; padding:3px 4px; font-size:10px; min-width:0; justify-content:center; }
+.training-buffs-table .training-custom-option { padding:4px 5px; font-size:9.5px; }
+.training-buffs-table .trigger-icon { width:16px; height:16px; }
+.training-buffs-table input.action-btn { padding:6px 4px; font-size:11px; text-align:center; max-width:86px; margin:0 auto; }
 input.action-btn:disabled { opacity:0.35; cursor:not-allowed; }
 html[dir="rtl"] .training-buffs-table .tb-row { direction:rtl; }
 @media (max-width: 520px) {
-    .training-buffs-table .tb-row { grid-template-columns:56px repeat(3, 1fr); gap:6px; }
-    .training-buffs-table .tb-label { font-size:9.5px; }
-    .training-custom-trigger { padding:6px 6px; font-size:11px; min-width:0; }
+    .training-buffs-table .tb-row { grid-template-columns:50px repeat(3, 1fr); gap:4px; }
+    .training-buffs-table .tb-label { font-size:9px; }
+    .training-buffs-table .training-select-wrapper { max-width:70px; }
+    .training-buffs-table input.action-btn { max-width:70px; }
 }
 .buffs-inline .select-group { flex:1 1 140px; }
 .buffs-inline .select-group label { font-size:13px; white-space:nowrap; }

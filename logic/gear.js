@@ -8,7 +8,6 @@ window.__gearImg_cane = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGYAAABlC
 // GEAR UPGRADE CALCULATOR
 // =========================
 
-const TIER_ORDER = ["gold", "gold_t1", "gold_t2", "red", "red_t1", "red_t2", "red_t3", "red_t4"];
 
 // Gear piece icon helper — uses embedded base64 if available, falls back to asset path
 function _gearIcon(name) {
@@ -23,16 +22,16 @@ const GEAR_PIECES = [{
         return _gearIcon("helmet");
     }
 }, {
-    id: 2,
-    nameKey: "coat",
-    get iconPath() {
-        return _gearIcon("coat");
-    }
-}, {
     id: 3,
     nameKey: "watch",
     get iconPath() {
         return _gearIcon("watch");
+    }
+}, {
+    id: 2,
+    nameKey: "coat",
+    get iconPath() {
+        return _gearIcon("coat");
     }
 }, {
     id: 4,
@@ -55,30 +54,58 @@ const GEAR_PIECES = [{
 }];
 
 const GearManager = {
+    // Per-slot state: { current: {q,t,s}, target: {q,t,s} }
     data: {},
+    activeSlot: null,
+
+    // ─── Sequence helpers ───────────────────────────────────────────────────
+    // gearSequence is a flat, ordered array of every {q,t,s} stop across all
+    // qualities/tiers/stars. Index N = cumulative position N in the overall
+    // upgrade path (green tier0 star0 first, red max tier/star last).
+
+    seqIndex(q, t, s) {
+        const seq = window.gearSequence || [];
+        for (let i = 0; i < seq.length; i++) {
+            if (seq[i].q === q && seq[i].t === t && seq[i].s === s) return i;
+        }
+        return 0;
+    },
+
+    cumulativeAt(index) {
+        const seq = window.gearSequence || [];
+        const total = { alloy: 0, solution: 0, plans: 0, amber: 0, power: 0 };
+        for (let i = 0; i <= index && i < seq.length; i++) {
+            total.alloy += seq[i].alloy;
+            total.solution += seq[i].solution;
+            total.plans += seq[i].plans;
+            total.amber += seq[i].amber;
+            total.power += seq[i].power;
+        }
+        return total;
+    },
+
+    costBetween(cur, tgt) {
+        const ci = this.seqIndex(cur.q, cur.t, cur.s);
+        const ti = this.seqIndex(tgt.q, tgt.t, tgt.s);
+        const curTotal = this.cumulativeAt(ci);
+        const tgtTotal = this.cumulativeAt(ti);
+        return {
+            alloy: Math.max(0, tgtTotal.alloy - curTotal.alloy),
+            solution: Math.max(0, tgtTotal.solution - curTotal.solution),
+            plans: Math.max(0, tgtTotal.plans - curTotal.plans),
+            amber: Math.max(0, tgtTotal.amber - curTotal.amber),
+            power: Math.max(0, tgtTotal.power - curTotal.power)
+        };
+    },
+
+    qualityLabel(q) {
+        return this._t("gearQuality_" + q, q.charAt(0).toUpperCase() + q.slice(1));
+    },
 
     // ─── Translation helpers ──────────────────────────────────────────────────
 
-    _t(key, fallback="") {
+    _t(key, fallback = "") {
         return I18N.t(key) || fallback;
-    },
-
-    _formatTierName(tier) {
-        return this._t(tier, tier.replace(/_/g, " ").toUpperCase());
-    },
-
-    _formatStarsLabel(stars) {
-        if (stars === "base")
-            return this._t("base", "Base");
-        return `${this._t("stars", "Stars")} ${stars}`;
-    },
-
-    _formatLevel(tier, stars, step) {
-        const tierLabel = this._formatTierName(tier);
-        if (stars === "base")
-            return `${tierLabel} | ${this._t("base", "Base")}`;
-        const stepText = step > 0 ? ` (${this._t("upgradeSteps", "Step")} ${step})` : "";
-        return `${tierLabel} | ⭐${stars}${stepText}`;
     },
 
     // ─── Init ─────────────────────────────────────────────────────────────────
@@ -86,671 +113,353 @@ const GearManager = {
     initDefaultData() {
         GEAR_PIECES.forEach(p => {
             this.data[p.id] = {
-                current: {
-                    tier: "gold",
-                    stars: 0,
-                    step: 0
-                },
-                target: {
-                    tier: "gold",
-                    stars: 1,
-                    step: 0
-                },
-                phase: "current"
+                current: { q: "green", t: 0, s: 0 },
+                target: { q: "green", t: 0, s: 0 }
             };
-        }
-        );
+        });
+    },
+
+    // Piece.nameKey -> troop abbreviation (inf/lanc/mark), shared by grid + Select All
+    pieceTroopMap() {
+        const troopAbbrev = { infantry: "inf", lancer: "lanc", marksman: "mark" };
+        const nameKeyToDataKey = { helmet: "cap", coat: "coat", watch: "watch", pants: "pants", ring: "ring", cane: "weapon" };
+        const slotsByTroop = window.gearSlotsByTroop || {};
+        const dataKeyTroop = {};
+        Object.keys(slotsByTroop).forEach(troop => {
+            const abbrev = troopAbbrev[troop] || troop;
+            slotsByTroop[troop].forEach(pieceKey => { dataKeyTroop[pieceKey] = abbrev; });
+        });
+        const map = {};
+        GEAR_PIECES.forEach(p => {
+            const dataKey = nameKeyToDataKey[p.nameKey] || p.nameKey;
+            map[p.id] = dataKeyTroop[dataKey] || "inf";
+        });
+        return map;
     },
 
     // ─── Render grid ─────────────────────────────────────────────────────────
 
     renderGearGrid() {
         const grid = document.getElementById("gear_items_grid");
-        if (!grid)
-            return;
+        if (!grid) return;
+        if (!this.data || !Object.keys(this.data).length) this.initDefaultData();
 
-        grid.innerHTML = GEAR_PIECES.map(p => {
-            const name = this._t(p.nameKey, p.nameKey);
+        const troopColor = { inf: "#5fe016", lanc: "#3fb6ff", mark: "#ffb020" };
+        const pieceTroopById = this.pieceTroopMap();
+
+        const cardHtml = (p) => {
+            const troop = pieceTroopById[p.id] || "inf";
+            const color = troopColor[troop] || "#4fc3ff";
+            const isActive = this.activeSlot === p.id;
+            const st = this.data[p.id];
+            const starTxt = st.target.s === 0 ? this._t("noStars", "No Stars") : "⭐".repeat(st.target.s);
+            const label = st ? `${this.qualityLabel(st.target.q)} · ${this._t("tier", "Tier")} ${st.target.t} · ${starTxt}` : "—";
+            const troopKey = "troop" + troop.charAt(0).toUpperCase() + troop.slice(1);
+
             return `
-            <div class="gear-interactive-card" id="gear_card_${p.id}">
-
-                <!-- Card Header: icon + name -->
-                <div class="gear-card-top-header">
-                    <div class="gear-visual-frame red-dark-bg" id="gear_glow_${p.id}">
-                        <img src="${p.iconPath}" alt="${name}" class="gear-icon-img"
-                             onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-                        <div class="gear-emoji-avatar" style="display:none;">🛡️</div>
-                    </div>
-                    <div class="gear-meta-info">
-                        <h4 class="gear-main-title">${name}</h4>
-                        <div class="gear-summary-badge" id="current_summary_${p.id}" style="display:none;">
-                            ${this._t("currentSummary", "Current")}:
-                            <span id="summary_text_${p.id}">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- CURRENT PANEL -->
-                <div class="gear-internal-panel" id="panel_current_${p.id}">
-                    <div class="gear-panel-status-tag">${this._t("setCurrentStatus", "Set Current Status")}</div>
-
-                    ${this._dropdownHtml(p.id, "current", "tier", this._t("tierLevel", "Tier Level"), TIER_ORDER.map(t => ({
-                value: t,
-                label: this._formatTierName(t)
-            })), "gold")}
-
-                    <div id="current_stars_container_${p.id}">
-                        ${this._starsDropdownHtml(p.id, "current", [0, 1, 2, 3], "0", false)}
-                    </div>
-
-                    <div class="gear-steps-wrapper" id="steps_container_current_${p.id}" style="display:none;">
-                        <label class="gear-steps-label" id="steps_label_current_${p.id}">
-                            ${this._t("upgradeSteps", "Upgrade Steps")}
-                        </label>
-                        <div class="gear-steps-flex-bar" id="steps_bar_current_${p.id}"></div>
-                    </div>
-
-                    <button class="gear-next-btn" onclick="GearManager.lockCurrent(${p.id})">
-                        ${this._t("nextSetTarget", "Next: Set Target ➔")}
-                    </button>
-                </div>
-
-                <!-- TARGET PANEL -->
-                <div class="gear-internal-panel" id="panel_target_${p.id}" style="display:none;">
-                    <div class="gear-panel-status-tag target-blue-tag">
-                        ${this._t("setTargetStatus", "Set Target Status")}
-                    </div>
-
-                    <!-- Mini current-status display -->
-                    <div class="current-status-mini">
-                        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#4fc3ff;margin-bottom:4px;">
-                            ${this._t("currentSummary", "Current")}
-                        </div>
-                        <div style="font-weight:700;color:#fff;font-size:13px;" id="mini_current_text_${p.id}">-</div>
-                    </div>
-
-                    <!-- Target Tier dropdown -->
-                    <div class="gear-select-wrapper">
-                        <label class="gear-select-label">${this._t("tierLevel", "Target Tier")}</label>
-                        <div class="gear-custom-trigger" onclick="GearManager.toggleDropdown(this)">
-                            <span class="gear-selected-text" id="target_tier_text_${p.id}">
-                                ${this._formatTierName("gold")}
-                            </span>
-                            <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24"
-                                 fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
-                        </div>
-                        <div class="gear-custom-dropdown-menu" id="target_tier_menu_${p.id}"></div>
-                    </div>
-
-                    <!-- Target Stars dropdown -->
-                    <div class="gear-select-wrapper">
-                        <label class="gear-select-label">${this._t("stars", "Target Stars")}</label>
-                        <div class="gear-custom-trigger" onclick="GearManager.toggleDropdown(this)">
-                            <span class="gear-selected-text" id="target_stars_text_${p.id}">
-                                ${this._formatStarsLabel(0)}
-                            </span>
-                            <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24"
-                                 fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
-                        </div>
-                        <div class="gear-custom-dropdown-menu" id="target_stars_menu_${p.id}"></div>
-                    </div>
-
-                    <!-- Target Steps -->
-                    <div class="gear-steps-wrapper" id="steps_container_target_${p.id}" style="display:none;">
-                        <label class="gear-steps-label" id="steps_label_target_${p.id}">
-                            ${this._t("targetUpgradeSteps", "Target Upgrade Steps")}
-                        </label>
-                        <div class="gear-steps-flex-bar" id="steps_bar_target_${p.id}"></div>
-                    </div>
-
-                    <button class="gear-back-btn" onclick="GearManager.unlockCurrent(${p.id})">
-                        ${this._t("modifyCurrent", "⬅ Modify Current")}
-                    </button>
-                </div>
+            <div class="gear-slot-card ${isActive ? "gear-slot-active" : ""}" id="gearSlotCard_${p.id}"
+                 style="--slot-color:${color};" onclick="GearManager.toggleSlot(${p.id})">
+                <img class="gear-slot-icon" src="${p.iconPath}" alt="">
+                <div class="gear-slot-name">${this._t(p.nameKey, p.nameKey)}</div>
+                <div class="gear-slot-troop" style="color:${color};">${this._t(troopKey, troop)}</div>
+                <div class="gear-slot-current">${label}</div>
             </div>`;
-        }
-        ).join("");
-    },
-
-    // ─── Dropdown helpers ─────────────────────────────────────────────────────
-
-    _dropdownHtml(cardId, mode, type, label, options, defaultVal) {
-        const selected = options.find(o => o.value === defaultVal) || options[0];
-        const opts = options.map(o => `
-            <div class="gear-custom-option ${o.value === defaultVal ? "active" : ""}"
-                 data-value="${o.value}"
-                 onclick="GearManager.selectOption(this,${cardId},'${mode}','${type}')">
-                ${o.label}
-            </div>`).join("");
-
-        return `
-        <div class="gear-select-wrapper">
-            <label class="gear-select-label">${label}</label>
-            <div class="gear-custom-trigger" onclick="GearManager.toggleDropdown(this)">
-                <span class="gear-selected-text">${selected.label}</span>
-                <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24"
-                     fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
-            </div>
-            <div class="gear-custom-dropdown-menu">${opts}</div>
-        </div>`;
-    },
-
-    _starsDropdownHtml(cardId, mode, starValues, defaultVal, includeBase=false) {
-        let options = [];
-        if (includeBase)
-            options.push({
-                value: "base",
-                label: this._t("base", "Base")
-            });
-        starValues.forEach(s => options.push({
-            value: String(s),
-            label: this._formatStarsLabel(s)
-        }));
-
-        const selected = options.find(o => o.value === defaultVal) || options[0];
-        const opts = options.map(o => `
-            <div class="gear-custom-option ${o.value === defaultVal ? "active" : ""}"
-                 data-value="${o.value}"
-                 onclick="GearManager.selectOption(this,${cardId},'${mode}','stars')">
-                ${o.label}
-            </div>`).join("");
-
-        return `
-        <div class="gear-select-wrapper" id="${mode}_stars_wrapper_${cardId}">
-            <label class="gear-select-label">${this._t("stars", "Stars")}</label>
-            <div class="gear-custom-trigger" onclick="GearManager.toggleDropdown(this)">
-                <span class="gear-selected-text">${selected ? selected.label : ""}</span>
-                <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24"
-                     fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
-            </div>
-            <div class="gear-custom-dropdown-menu">${opts}</div>
-        </div>`;
-    },
-
-    toggleDropdown(trigger) {
-        const menu = trigger.nextElementSibling;
-        if (!menu)
-            return;
-        document.querySelectorAll(".gear-custom-dropdown-menu").forEach(m => {
-            if (m !== menu)
-                m.classList.remove("show");
-        }
-        );
-        document.querySelectorAll(".gear-custom-trigger").forEach(t => {
-            if (t !== trigger)
-                t.classList.remove("open");
-        }
-        );
-        menu.classList.toggle("show");
-        trigger.classList.toggle("open");
-    },
-
-    // ─── Selection ────────────────────────────────────────────────────────────
-
-    selectOption(optionElem, cardId, mode, type) {
-        const value = optionElem.getAttribute("data-value");
-        const menu = optionElem.parentElement;
-        const trigger = menu.previousElementSibling;
-
-        if (trigger?.querySelector(".gear-selected-text")) {
-            trigger.querySelector(".gear-selected-text").innerText = optionElem.innerText;
-        }
-        menu.querySelectorAll(".gear-custom-option").forEach(o => o.classList.remove("active"));
-        optionElem.classList.add("active");
-        menu.classList.remove("show");
-        trigger?.classList.remove("open");
-
-        if (type === "tier") {
-            this.data[cardId][mode].tier = value;
-            this.data[cardId][mode].stars = (value === "red") ? "base" : 0;
-            this.data[cardId][mode].step = 0;
-
-            if (mode === "current") {
-                const container = document.getElementById(`current_stars_container_${cardId}`);
-                if (container) {
-                    const isRed = value === "red";
-                    container.innerHTML = this._starsDropdownHtml(cardId, "current", [0, 1, 2, 3], isRed ? "base" : "0", isRed);
-                }
-            }
-        } else if (type === "stars") {
-            this.data[cardId][mode].stars = (value === "base") ? "base" : parseInt(value);
-            this.data[cardId][mode].step = 0;
-        }
-
-        this.updateCardUI(cardId);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    // ─── UI updates ───────────────────────────────────────────────────────────
-
-    updateCardUI(cardId) {
-        const item = this.data[cardId];
-        if (!item)
-            return;
-
-        const glow = document.getElementById(`gear_glow_${cardId}`);
-        if (glow) {
-            glow.className = "gear-visual-frame red-dark-bg " + this._getGlowClass(item.current.tier, item.current.stars);
-        }
-
-        const miniText = document.getElementById(`mini_current_text_${cardId}`);
-        if (miniText) {
-            miniText.innerText = this._formatLevel(item.current.tier, item.current.stars, item.current.step);
-        }
-
-        this.renderStepsBar(cardId, "current");
-        this.renderStepsBar(cardId, "target");
-    },
-
-    _getGlowClass(tier) {
-        const idx = TIER_ORDER.indexOf(tier);
-        if (idx <= TIER_ORDER.indexOf("gold_t2"))
-            return "gold-glow";
-        if (idx >= TIER_ORDER.indexOf("red_t4"))
-            return "white-glow";
-        return "red-glow";
-    },
-
-    renderStepsBar(cardId, mode) {
-        const item = this.data[cardId]?.[mode];
-        const container = document.getElementById(`steps_container_${mode}_${cardId}`);
-        const bar = document.getElementById(`steps_bar_${mode}_${cardId}`);
-        const label = document.getElementById(`steps_label_${mode}_${cardId}`);
-        if (!item || !bar || !container)
-            return;
-
-        const isRed = TIER_ORDER.indexOf(item.tier) >= TIER_ORDER.indexOf("red");
-        if (!isRed || item.stars === "base") {
-            container.style.display = "none";
-            return;
-        }
-
-        container.style.display = "block";
-        const maxSteps = item.tier === "red_t4" ? 5 : 4;
-        const currentStep = item.step || 0;
-
-        if (label) {
-            const labelKey = mode === "target" ? "targetUpgradeSteps" : "upgradeSteps";
-            label.innerText = `${this._t(labelKey, "Upgrade Steps")} (${this._t("stars", "Stars")} ${item.stars})`;
-        }
-
-        let html = "";
-        for (let i = 1; i <= maxSteps; i++) {
-            let cls = "";
-            if (i < currentStep)
-                cls = "solid-green";
-            if (i === currentStep)
-                cls = "blinking-green";
-            html += `<div class="gear-step-node ${cls}"
-                          onclick="GearManager.handleStepClick(${cardId},'${mode}',${i})"></div>`;
-        }
-        bar.innerHTML = html;
-    },
-
-    handleStepClick(cardId, mode, step) {
-        const item = this.data[cardId]?.[mode];
-        if (!item)
-            return;
-        item.step = (item.step === step) ? step - 1 : step;
-        this.renderStepsBar(cardId, mode);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    // ─── Phase management ────────────────────────────────────────────────────
-
-    lockCurrent(cardId) {
-        const item = this.data[cardId];
-        if (!item)
-            return;
-        item.phase = "target";
-
-        const badge = document.getElementById(`current_summary_${cardId}`);
-        const text = document.getElementById(`summary_text_${cardId}`);
-        if (badge && text) {
-            text.innerText = this._formatLevel(item.current.tier, item.current.stars, item.current.step);
-            badge.style.display = "inline-block";
-        }
-
-        const miniText = document.getElementById(`mini_current_text_${cardId}`);
-        if (miniText) {
-            miniText.innerText = this._formatLevel(item.current.tier, item.current.stars, item.current.step);
-        }
-
-        this._ensureTargetAtLeastCurrent(cardId);
-
-        document.getElementById(`panel_current_${cardId}`)?.style.setProperty("display", "none");
-        document.getElementById(`panel_target_${cardId}`)?.style.setProperty("display", "block");
-
-        this.buildTargetDropdowns(cardId);
-        this.updateCardUI(cardId);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    unlockCurrent(cardId) {
-        if (!this.data[cardId])
-            return;
-        this.data[cardId].phase = "current";
-
-        document.getElementById(`panel_target_${cardId}`)?.style.setProperty("display", "none");
-        document.getElementById(`panel_current_${cardId}`)?.style.setProperty("display", "block");
-        const badge = document.getElementById(`current_summary_${cardId}`);
-        if (badge)
-            badge.style.display = "none";
-
-        this.updateCardUI(cardId);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    _ensureTargetAtLeastCurrent(cardId) {
-        const item = this.data[cardId];
-        const curPos = this._positionIndex(item.current.tier, item.current.stars, item.current.step);
-        const tgtPos = this._positionIndex(item.target.tier, item.target.stars, item.target.step);
-        if (tgtPos < curPos) {
-            item.target.tier = item.current.tier;
-            item.target.stars = item.current.stars;
-            item.target.step = item.current.step;
-        }
-    },
-
-    // ─── Target dropdowns ────────────────────────────────────────────────────
-
-    buildTargetDropdowns(cardId) {
-        this._buildTargetTierMenu(cardId);
-        this._buildTargetStarsMenu(cardId);
-    },
-
-    _buildTargetTierMenu(cardId) {
-        const item = this.data[cardId];
-        const tierMenu = document.getElementById(`target_tier_menu_${cardId}`);
-        if (!tierMenu)
-            return;
-
-        const currentIdx = TIER_ORDER.indexOf(item.current.tier);
-        tierMenu.innerHTML = TIER_ORDER.filter( (_, i) => i >= currentIdx).map(tier => `
-                <div class="gear-custom-option ${item.target.tier === tier ? "active" : ""}"
-                     data-value="${tier}"
-                     onclick="GearManager.selectTargetTier(this,${cardId})">
-                    ${this._formatTierName(tier)}
-                </div>`).join("");
-
-        const trigger = tierMenu.previousElementSibling;
-        if (trigger?.querySelector(".gear-selected-text")) {
-            trigger.querySelector(".gear-selected-text").innerText = this._formatTierName(item.target.tier);
-        }
-    },
-
-    _buildTargetStarsMenu(cardId) {
-        const item = this.data[cardId];
-        const starsMenu = document.getElementById(`target_stars_menu_${cardId}`);
-        if (!starsMenu)
-            return;
-
-        const currentIdx = TIER_ORDER.indexOf(item.current.tier);
-        const targetIdx = TIER_ORDER.indexOf(item.target.tier);
-        const currentStarNum = item.current.stars === "base" ? -1 : parseInt(item.current.stars);
-        let html = "";
-
-        if (item.target.tier === "red") {
-            if (targetIdx > currentIdx || currentStarNum <= -1) {
-                html += `<div class="gear-custom-option ${item.target.stars === "base" ? "active" : ""}"
-                               data-value="base"
-                               onclick="GearManager.selectTargetStars(this,${cardId})">
-                               ${this._t("base", "Base")}</div>`;
-            }
-        }
-
-        for (let i = 0; i <= 3; i++) {
-            if (item.target.tier === "gold" && i === 0)
-                continue;
-            if (targetIdx === currentIdx && i < currentStarNum)
-                continue;
-            const active = item.target.stars === i ? "active" : "";
-            html += `<div class="gear-custom-option ${active}"
-                          data-value="${i}"
-                          onclick="GearManager.selectTargetStars(this,${cardId})">
-                          ${this._formatStarsLabel(i)}</div>`;
-        }
-
-        starsMenu.innerHTML = html;
-
-        const trigger = starsMenu.previousElementSibling;
-        if (trigger?.querySelector(".gear-selected-text")) {
-            trigger.querySelector(".gear-selected-text").innerText = this._formatStarsLabel(item.target.stars);
-        }
-    },
-
-    selectTargetTier(optionElem, cardId) {
-        const value = optionElem.getAttribute("data-value");
-        const menu = optionElem.parentElement;
-        const trigger = menu.previousElementSibling;
-
-        if (trigger?.querySelector(".gear-selected-text")) {
-            trigger.querySelector(".gear-selected-text").innerText = optionElem.innerText;
-        }
-        menu.querySelectorAll(".gear-custom-option").forEach(o => o.classList.remove("active"));
-        optionElem.classList.add("active");
-        menu.classList.remove("show");
-        trigger?.classList.remove("open");
-
-        this.data[cardId].target.tier = value;
-        this.data[cardId].target.stars = (value === "red") ? "base" : (value === "gold" ? 1 : 0);
-        this.data[cardId].target.step = 0;
-
-        this._buildTargetStarsMenu(cardId);
-        this.updateCardUI(cardId);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    selectTargetStars(optionElem, cardId) {
-        const value = optionElem.getAttribute("data-value");
-        const menu = optionElem.parentElement;
-        const trigger = menu.previousElementSibling;
-
-        if (trigger?.querySelector(".gear-selected-text")) {
-            trigger.querySelector(".gear-selected-text").innerText = optionElem.innerText;
-        }
-        menu.querySelectorAll(".gear-custom-option").forEach(o => o.classList.remove("active"));
-        optionElem.classList.add("active");
-        menu.classList.remove("show");
-        trigger?.classList.remove("open");
-
-        this.data[cardId].target.stars = (value === "base") ? "base" : parseInt(value);
-        this.data[cardId].target.step = 0;
-
-        this.updateCardUI(cardId);
-        this.calculateTotalCosts();
-        this.saveToStorage();
-    },
-
-    // ─── Position index (for comparison) ─────────────────────────────────────
-
-    _positionIndex(tier, stars, step) {
-        const tierIdx = TIER_ORDER.indexOf(tier);
-        if (tierIdx < 0)
-            return -1;
-        let idx = tierIdx * 1000;
-        if (stars === "base")
-            return idx;
-        idx += (parseInt(stars) + 1) * 100;
-        idx += parseInt(step) || 0;
-        return idx;
-    },
-
-    // ─── Cost calculation (unchanged logic) ───────────────────────────────────
-
-    _calcCumulativeCost(tier, stars, step) {
-        const total = {
-            alloy: 0,
-            solution: 0,
-            plans: 0,
-            amber: 0
         };
-        const db = window.gearData;
-        if (!db)
-            return total;
-        if (tier === "gold" && stars === 0 && step === 0)
-            return total;
 
-        const add = cost => {
-            if (!cost)
-                return;
-            total.alloy += cost.alloy || 0;
-            total.solution += cost.solution || 0;
-            total.plans += cost.plans || 0;
-            total.amber += cost.amber || 0;
-        }
-        ;
+        // Build the grid row by row (2 pieces per row). If the active slot
+        // belongs to this row, the config panel is inserted right after it,
+        // full-width — everything below naturally reflows down to make room.
+        let html = "";
+        for (let i = 0; i < GEAR_PIECES.length; i += 2) {
+            const left = GEAR_PIECES[i];
+            const right = GEAR_PIECES[i + 1];
+            html += cardHtml(left);
+            if (right) html += cardHtml(right);
 
-        // Gold tiers
-        for (const gTier of ["gold", "gold_t1", "gold_t2"]) {
-            const td = db[gTier];
-            if (!td)
-                continue;
-            for (let s = 0; s <= 3; s++) {
-                if (gTier === "gold" && s === 0)
-                    continue;
-                add(td[`star${s}`]);
-                if (tier === gTier && stars === s)
-                    return total;
+            const rowHasActive = (left && this.activeSlot === left.id) || (right && this.activeSlot === right.id);
+            if (rowHasActive) {
+                html += `<div class="gear-config-panel gear-config-panel-inline" id="gearConfigPanel"></div>`;
             }
         }
+        grid.innerHTML = html;
 
-        // Red tiers
-        for (const rTier of ["red", "red_t1", "red_t2", "red_t3", "red_t4"]) {
-            const td = db[rTier];
-            if (!td)
-                continue;
-            const maxSteps = rTier === "red_t4" ? 5 : 4;
-
-            for (let s = 0; s <= 3; s++) {
-                const sd = td[`star${s}`];
-                if (!sd)
-                    continue;
-
-                if (rTier === "red" && s === 0) {
-                    add(sd.base);
-                    if (tier === "red" && stars === "base")
-                        return total;
-                    if (tier === "red" && stars === 0 && step === 0)
-                        return total;
-                    for (let st = 1; st <= 4; st++) {
-                        add(sd[`step${st}`]);
-                        if (tier === "red" && stars === 0 && step === st)
-                            return total;
-                    }
-                } else {
-                    if (tier === rTier && stars === s && step === 0)
-                        return total;
-                    for (let st = 1; st <= maxSteps; st++) {
-                        add(sd[`step${st}`]);
-                        if (tier === rTier && stars === s && step === st)
-                            return total;
-                    }
-                }
-            }
+        if (this.activeSlot) {
+            this.renderConfigPanel(this.activeSlot);
         }
-
-        return total;
     },
+
+    toggleSlot(id) {
+        this.activeSlot = (this.activeSlot === id) ? null : id;
+        this._selectAllClicks = 0;
+        this.renderGearGrid();
+    },
+
+    // Select All: 1st click -> apply the active slot's Target to every piece
+    // of the same troop type. 2nd (and further) click -> apply it to every
+    // piece across all troop types.
+    selectAll() {
+        if (!this.activeSlot || !this.data[this.activeSlot]) return;
+        const targetPos = { ...this.data[this.activeSlot].target };
+        const pieceTroopById = this.pieceTroopMap();
+        const activeTroop = pieceTroopById[this.activeSlot];
+
+        this._selectAllClicks = (this._selectAllClicks || 0) + 1;
+        const applyToAll = this._selectAllClicks >= 2;
+
+        GEAR_PIECES.forEach(p => {
+            if (!applyToAll && pieceTroopById[p.id] !== activeTroop) return;
+            this.data[p.id].target = { ...targetPos };
+            this.enforceOrdering(p.id);
+        });
+
+        this.renderGearGrid();
+        if (this.activeSlot) this.renderConfigPanel(this.activeSlot);
+        this.calculateTotalCosts();
+        this.saveData();
+    },
+
+    // ─── Config panel (current/target quality+tier+star selectors) ────────────
+
+    renderConfigPanel(id) {
+        const panel = document.getElementById("gearConfigPanel");
+        if (!panel) return;
+        const piece = GEAR_PIECES.find(p => p.id === id);
+        const st = this.data[id];
+        panel.style.display = "";
+
+        panel.innerHTML = `
+            <div class="gear-config-header">
+                <img src="${piece.iconPath}" alt="" style="width:32px;height:32px;object-fit:contain;">
+                <span>${this._t(piece.nameKey, piece.nameKey)}</span>
+            </div>
+            <div class="gear-config-grid">
+                <div class="gear-config-col">
+                    <label class="gear-select-label">${this._t("current", "Current")}</label>
+                    ${this.buildSelector(id, "current", st.current)}
+                </div>
+                <div class="gear-config-col">
+                    <label class="gear-select-label">${this._t("target", "Target")}</label>
+                    ${this.buildSelector(id, "target", st.target)}
+                </div>
+            </div>
+            <div class="gear-config-result" id="gearResult_${id}"></div>
+        `;
+        this.renderSlotResult(id);
+    },
+
+    buildSelector(id, mode, pos) {
+        const qualities = window.GEAR_QUALITY_ORDER || [];
+        const qOptions = qualities.map(q =>
+            `<div class="gear-custom-option ${q === pos.q ? "active" : ""}" data-value="${q}"
+                  onclick="GearManager.changeQuality(${id},'${mode}',this.dataset.value)">${this.qualityLabel(q)}</div>`
+        ).join("");
+
+        const tierCount = (window.gearData[pos.q] || { tiers: [] }).tiers.length;
+        const tOptions = Array.from({ length: tierCount }, (_, i) =>
+            `<div class="gear-custom-option ${i === pos.t ? "active" : ""}" data-value="${i}"
+                  onclick="GearManager.changeTier(${id},'${mode}',this.dataset.value)">${this._t("tier", "Tier")} ${i}</div>`
+        ).join("");
+
+        // Stars: the data holds up to 4 stages per tier, but in-game max is 3
+        // real stars — stage 0 = "No Stars" (tier entry), stages 1-3 = ⭐1-⭐3.
+        const starCount = ((window.gearData[pos.q] || { tiers: [[]] }).tiers[pos.t] || []).length;
+        const starLabel = i => i === 0 ? this._t("noStars", "No Stars") : "⭐".repeat(i) + " " + i;
+        const sOptions = Array.from({ length: starCount }, (_, i) =>
+            `<div class="gear-custom-option ${i === pos.s ? "active" : ""}" data-value="${i}"
+                  onclick="GearManager.changeStar(${id},'${mode}',this.dataset.value)">${starLabel(i)}</div>`
+        ).join("");
+
+        const selQ = this.qualityLabel(pos.q);
+        const selT = `${this._t("tier", "Tier")} ${pos.t}`;
+        const selS = starLabel(pos.s);
+
+        const dd = (key, menuHtml, selectedText) => `
+            <div class="gear-select-wrapper">
+                <div class="gear-custom-trigger" onclick="GearManager.toggleDD(this)">
+                    <span class="gear-selected-text">${selectedText}</span>
+                    <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24"
+                         fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+                <div class="gear-custom-dropdown-menu">${menuHtml}</div>
+            </div>`;
+
+        return dd("q", qOptions, selQ) + dd("t", tOptions, selT) + dd("s", sOptions, selS);
+    },
+
+    toggleDD(triggerEl) {
+        const menu = triggerEl.nextElementSibling;
+        const isOpen = menu.classList.contains("show");
+        document.querySelectorAll(".gear-custom-dropdown-menu.show").forEach(m => m.classList.remove("show"));
+        document.querySelectorAll(".gear-custom-trigger.open").forEach(t => t.classList.remove("open"));
+        if (!isOpen) {
+            menu.classList.add("show");
+            triggerEl.classList.add("open");
+        }
+    },
+
+    // Keeps Target strictly ahead of Current in the overall upgrade sequence.
+    // If a change would make Target <= Current, Target is bumped forward to
+    // the very next stop in the sequence.
+    enforceOrdering(id) {
+        const st = this.data[id];
+        const ci = this.seqIndex(st.current.q, st.current.t, st.current.s);
+        const ti = this.seqIndex(st.target.q, st.target.t, st.target.s);
+        // Target may equal Current (cost = 0) but must never fall behind it.
+        if (ti < ci) {
+            const seq = window.gearSequence || [];
+            const stop = seq[ci];
+            if (stop) {
+                st.target.q = stop.q;
+                st.target.t = stop.t;
+                st.target.s = stop.s;
+            }
+        }
+    },
+
+    changeQuality(id, mode, q) {
+        const pos = this.data[id][mode];
+        pos.q = q;
+        pos.t = 0;
+        pos.s = 0;
+        this.enforceOrdering(id);
+        this.renderConfigPanel(id);
+        this.renderGearGrid();
+        this.calculateTotalCosts();
+        this.saveData();
+    },
+
+    changeTier(id, mode, t) {
+        const pos = this.data[id][mode];
+        pos.t = parseInt(t, 10);
+        pos.s = 0;
+        this.enforceOrdering(id);
+        this.renderConfigPanel(id);
+        this.renderGearGrid();
+        this.calculateTotalCosts();
+        this.saveData();
+    },
+
+    changeStar(id, mode, s) {
+        const pos = this.data[id][mode];
+        pos.s = parseInt(s, 10);
+        this.enforceOrdering(id);
+        this.renderConfigPanel(id);
+        this.renderGearGrid();
+        this.calculateTotalCosts();
+        this.saveData();
+    },
+
+    nf(n) {
+        if (!n && n !== 0) return "0";
+        return Math.round(n).toLocaleString();
+    },
+
+    renderSlotResult(id) {
+        const el = document.getElementById("gearResult_" + id);
+        if (!el) return;
+        const st = this.data[id];
+        const cost = this.costBetween(st.current, st.target);
+        el.innerHTML = `
+            <div class="gear-result-row"><span>${this._t("alloy", "Alloy")}</span><b>${this.nf(cost.alloy)}</b></div>
+            <div class="gear-result-row"><span>${this._t("polishSolution", "Polishing Solution")}</span><b>${this.nf(cost.solution)}</b></div>
+            <div class="gear-result-row"><span>${this._t("designPlans", "Design Plans")}</span><b>${this.nf(cost.plans)}</b></div>
+            <div class="gear-result-row"><span>${this._t("lunarAmber", "Lunar Amber")}</span><b>${this.nf(cost.amber)}</b></div>
+            <div class="gear-result-row gear-result-power"><span>${this._t("power", "Power")}</span><b>+${this.nf(cost.power)}</b></div>
+        `;
+    },
+
+    // ─── Grand totals ───────────────────────────────────────────────────────
 
     calculateTotalCosts() {
-        const grand = {
-            alloy: 0,
-            solution: 0,
-            plans: 0,
-            amber: 0
+        const grand = { alloy: 0, solution: 0, plans: 0, amber: 0 };
+        GEAR_PIECES.forEach(p => {
+            const st = this.data[p.id];
+            if (!st) return;
+            const cost = this.costBetween(st.current, st.target);
+            grand.alloy += cost.alloy;
+            grand.solution += cost.solution;
+            grand.plans += cost.plans;
+            grand.amber += cost.amber;
+        });
+        this._lastGrandTotal = grand;
+
+        const setBoth = (suffix, key) => {
+            [`total_${suffix}`, `total_${suffix}_mobile`].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = this.nf(grand[key]);
+            });
         };
-
-        Object.keys(this.data).forEach(cardId => {
-            const item = this.data[cardId];
-            if (item.phase !== "target")
-                return;
-
-            const cur = this._calcCumulativeCost(item.current.tier, item.current.stars, item.current.step);
-            const tgt = this._calcCumulativeCost(item.target.tier, item.target.stars, item.target.step);
-
-            grand.alloy += Math.max(0, tgt.alloy - cur.alloy);
-            grand.solution += Math.max(0, tgt.solution - cur.solution);
-            grand.plans += Math.max(0, tgt.plans - cur.plans);
-            grand.amber += Math.max(0, tgt.amber - cur.amber);
-        }
-        );
-
-        const set = (id, val) => {
-            const el = document.getElementById(id);
-            if (el)
-                el.innerText = val.toLocaleString();
-        }
-        ;
-        // Desktop totals (bottom)
-        set("total_alloy", grand.alloy);
-        set("total_solution", grand.solution);
-        set("total_plans", grand.plans);
-        set("total_amber", grand.amber);
-        // Mobile totals (top) - sync both
-        set("total_alloy_mobile", grand.alloy);
-        set("total_solution_mobile", grand.solution);
-        set("total_plans_mobile", grand.plans);
-        set("total_amber_mobile", grand.amber);
+        setBoth("alloy", "alloy");
+        setBoth("solution", "solution");
+        setBoth("plans", "plans");
+        setBoth("amber", "amber");
     },
 
-    // ─── Global actions ───────────────────────────────────────────────────────
+    copyTotal() {
+        const g = this._lastGrandTotal || { alloy: 0, solution: 0, plans: 0, amber: 0 };
+        const text = [
+            this._t("totalResources", "Total Resources Required"),
+            `${this._t("alloy", "Alloy")}: ${this.nf(g.alloy)}`,
+            `${this._t("polishSolution", "Polishing Solution")}: ${this.nf(g.solution)}`,
+            `${this._t("designPlans", "Design Plans")}: ${this.nf(g.plans)}`,
+            `${this._t("lunarAmber", "Lunar Amber")}: ${this.nf(g.amber)}`
+        ].join("\n");
+
+        const done = () => {
+            ["gearCopyBtn", "gearCopyBtnMobile"].forEach(id => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const original = btn.innerHTML;
+                btn.innerHTML = "✅";
+                setTimeout(() => btn.innerHTML = original, 1200);
+            });
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(done);
+        } else {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(ta);
+            done();
+        }
+    },
+
+    // ─── Reset ───────────────────────────────────────────────────────────────
 
     resetAll() {
-        Storage.remove("gear_data");
         this.initDefaultData();
+        this.activeSlot = null;
+        this._selectAllClicks = 0;
         this.renderGearGrid();
-        Object.keys(this.data).forEach(id => this.updateCardUI(id));
         this.calculateTotalCosts();
+        this.saveData();
     },
 
-    selectAll() {
-        const first = this.data[1];
-        if (!first)
-            return;
-        GEAR_PIECES.forEach(p => {
-            if (p.id !== 1)
-                this.data[p.id] = JSON.parse(JSON.stringify(first));
+    // ─── Persistence ─────────────────────────────────────────────────────────
+
+    saveData() {
+        Storage.set("gear", { data: this.data });
+    },
+
+    loadData() {
+        const saved = Storage.get("gear");
+        if (saved && saved.data) {
+            this.data = saved.data;
+        } else {
+            this.initDefaultData();
         }
-        );
-        this.saveToStorage();
-        this.renderGearGrid();
-        Object.keys(this.data).forEach(id => {
-            this.updateCardUI(id);
-            if (this.data[id].phase === "target")
-                this.lockCurrent(parseInt(id));
-        }
-        );
-        this.calculateTotalCosts();
     },
 
-    saveToStorage() {
-        Storage.set("gear_data", this.data);
-    },
-
-    // ─── Entry point ─────────────────────────────────────────────────────────
+    // ─── Init ─────────────────────────────────────────────────────────────────
 
     init() {
         Renderers.renderGearView();
-        this.initDefaultData();
-        const saved = Storage.get("gear_data");
-        if (saved) {
-            try {
-                this.data = saved;
-            } catch (e) {}
-        }
+        this.loadData();
+        this.activeSlot = null;
         this.renderGearGrid();
-        Object.keys(this.data).forEach(id => {
-            this.updateCardUI(id);
-            if (this.data[id].phase === "target")
-                this.lockCurrent(parseInt(id));
-        }
-        );
         this.calculateTotalCosts();
     }
 };

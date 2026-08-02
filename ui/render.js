@@ -312,7 +312,7 @@ const Renderers = {
         }
 
         const speedRow = types.map(t => `
-            <div class="tb-col"><input type="text" inputmode="numeric" id="${speedIds[t.key]}" placeholder="0" class="action-btn"></div>
+            <div class="tb-col"><input type="text" inputmode="decimal" id="${speedIds[t.key]}" placeholder="0" class="action-btn"></div>
         `).join("");
 
         const fcRow = types.map(t => `
@@ -654,8 +654,12 @@ const Renderers = {
             <!-- Mobile: Grand Total at top -->
             <div class="gear-mobile-total-top">
                 <div class="gear-interactive-card" style="margin-bottom:20px;">
-                    <h3 style="color:#4fc3ff;font-size:16px;font-weight:700;margin-bottom:18px;">
-                        💎 ${T("totalResources")}
+                    <h3 style="color:#4fc3ff;font-size:16px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <span>💎 ${T("totalResources")}</span>
+                        <span style="display:flex;gap:8px;">
+                            <button id="gearCopyBtnMobile" class="action-btn totals-mini-btn" onclick="GearManager.copyTotal()">📋 ${T("copy")}</button>
+                            <button class="action-btn totals-mini-btn totals-mini-btn-danger" onclick="GearManager.resetAll()">↺ ${T("reset")}</button>
+                        </span>
                     </h3>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
                         ${this._gearResourceTotal("total_alloy_mobile", T("alloy"), "#ffffff", window.__gearResImg_alloy)}
@@ -666,13 +670,19 @@ const Renderers = {
                 </div>
             </div>
 
-            <div class="gear-grid-layout" id="gear_items_grid"></div>
+            <div class="gear-grid-wrap">
+                <div class="gear-grid-layout" id="gear_items_grid"></div>
+            </div>
 
             <!-- Desktop: Grand Total at bottom -->
             <div class="gear-desktop-total-bottom">
                 <div class="gear-interactive-card" style="margin-top:25px;">
-                    <h3 style="color:#4fc3ff;font-size:16px;font-weight:700;margin-bottom:18px;">
-                        💎 ${T("totalResources")}
+                    <h3 style="color:#4fc3ff;font-size:16px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                        <span>💎 ${T("totalResources")}</span>
+                        <span style="display:flex;gap:8px;">
+                            <button id="gearCopyBtn" class="action-btn totals-mini-btn" onclick="GearManager.copyTotal()">📋 ${T("copy")}</button>
+                            <button class="action-btn totals-mini-btn totals-mini-btn-danger" onclick="GearManager.resetAll()">↺ ${T("reset")}</button>
+                        </span>
                     </h3>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px;">
                         ${this._gearResourceTotal("total_alloy", T("alloy"), "#ffffff", window.__gearResImg_alloy)}
@@ -700,6 +710,7 @@ const Renderers = {
         if (!container || container.innerHTML.trim() !== "")
             return;
         const T = k => I18N.t(k);
+        const badgeIcon = (type) => (window.charmLevelIcons && window.charmLevelIcons[type] && window.charmLevelIcons[type][1]) || "";
 
         container.innerHTML = `
         <div class="view-header">
@@ -707,83 +718,62 @@ const Renderers = {
             <h2>${T("charmsTitle")}</h2>
         </div>
 
-        <!-- Type selector buttons -->
-        <div class="charms-type-buttons">
-            <button class="charm-type-btn inf-btn"
-                    id="charmBtn_inf"
-                    onclick="CharmsManager.addCard('inf')">
-                <span class="charm-btn-icon"><img src="${window.__charmImg_infantry_charm}" style="width:36px;height:36px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                ${T("troopInf")}
-                <div class="charm-btn-slots">
-                    <span id="charmSlotLabel_inf">6 ${T("charmsAvailable")}</span>
+        <!-- Triangle troop selector -->
+        <div class="charm-triangle">
+            <div class="charm-badge-wrap charm-badge-top">
+                <div class="charm-badge inf-badge" id="charmBadge_inf" onclick="CharmsManager.selectType('inf')">
+                    <img id="charmBadgeImg_inf" src="${badgeIcon('inf')}" alt="">
                 </div>
-            </button>
-            <button class="charm-type-btn lanc-btn"
-                    id="charmBtn_lanc"
-                    onclick="CharmsManager.addCard('lanc')">
-                <span class="charm-btn-icon"><img src="${window.__charmImg_lancer_charm}" style="width:36px;height:36px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                ${T("troopLanc")}
-                <div class="charm-btn-slots">
-                    <span id="charmSlotLabel_lanc">6 ${T("charmsAvailable")}</span>
+                <div class="charm-badge-name inf-color">${T("troopInf")}</div>
+            </div>
+            <div class="charm-badge-wrap charm-badge-left">
+                <div class="charm-badge lanc-badge" id="charmBadge_lanc" onclick="CharmsManager.selectType('lanc')">
+                    <img id="charmBadgeImg_lanc" src="${badgeIcon('lanc')}" alt="">
                 </div>
-            </button>
-            <button class="charm-type-btn mark-btn"
-                    id="charmBtn_mark"
-                    onclick="CharmsManager.addCard('mark')">
-                <span class="charm-btn-icon"><img src="${window.__charmImg_marksman_charm}" style="width:36px;height:36px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                ${T("troopMark")}
-                <div class="charm-btn-slots">
-                    <span id="charmSlotLabel_mark">6 ${T("charmsAvailable")}</span>
+                <div class="charm-badge-name lanc-color">${T("troopLanc")}</div>
+            </div>
+            <div class="charm-triangle-center"></div>
+            <div class="charm-badge-wrap charm-badge-right">
+                <div class="charm-badge mark-badge" id="charmBadge_mark" onclick="CharmsManager.selectType('mark')">
+                    <img id="charmBadgeImg_mark" src="${badgeIcon('mark')}" alt="">
                 </div>
-            </button>
+                <div class="charm-badge-name mark-color">${T("troopMark")}</div>
+            </div>
         </div>
 
-        <!-- Grouped Cards Area -->
-        <div class="charms-group-section" id="charmsGroup_inf">
-            <div class="charms-group-header">
-                <span class="charm-group-emoji"><img src="${window.__charmImg_infantry_charm}" style="width:32px;height:32px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                <span class="charm-group-title" style="color:#80E012;">${T("troopInf")}</span>
-                <span class="charm-group-count" id="groupCount_inf">0 ${T("charmsCards")}</span>
-            </div>
-            <div class="charms-group-cards" id="charmsGroupCards_inf"></div>
+        <!-- Active troop panel: one fixed container with all 6 charm slots -->
+        ${["inf", "lanc", "mark"].map(type => `
+        <div class="charms-group-panel" id="charmsGroupPanel_${type}" style="display:${type === "inf" ? "" : "none"};">
+            <div class="charms-panel-title ${type}-color">${T("troop" + type.charAt(0).toUpperCase() + type.slice(1))}</div>
+            <div class="charms-group-cards" id="charmsGroupCards_${type}"></div>
         </div>
-
-        <div class="charms-group-section" id="charmsGroup_lanc">
-            <div class="charms-group-header">
-                <span class="charm-group-emoji"><img src="${window.__charmImg_lancer_charm}" style="width:32px;height:32px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                <span class="charm-group-title" style="color:#00ccff;">${T("troopLanc")}</span>
-                <span class="charm-group-count" id="groupCount_lanc">0 ${T("charmsCards")}</span>
-            </div>
-            <div class="charms-group-cards" id="charmsGroupCards_lanc"></div>
-        </div>
-
-        <div class="charms-group-section" id="charmsGroup_mark">
-            <div class="charms-group-header">
-                <span class="charm-group-emoji"><img src="${window.__charmImg_marksman_charm}" style="width:32px;height:32px;object-fit:contain;vertical-align:middle;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3));" alt=""></span>
-                <span class="charm-group-title" style="color:#ffcc00;">${T("troopMark")}</span>
-                <span class="charm-group-count" id="groupCount_mark">0 ${T("charmsCards")}</span>
-            </div>
-            <div class="charms-group-cards" id="charmsGroupCards_mark"></div>
-        </div>
+        `).join("")}
 
         <!-- Grand total -->
-        <div class="charms-grand-total" id="charmsGrandTotal" style="display:none;">
-            <h3>💎 ${T("charmsTotal")}</h3>
+        <div class="charms-grand-total">
+            <h3 style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                <span>💎 ${T("charmsTotal")}</span>
+                <span style="display:flex;gap:8px;">
+                    <button id="charmsCopyBtn" class="action-btn totals-mini-btn" onclick="CharmsManager.copyTotal()">📋 ${T("copy")}</button>
+                    <button class="action-btn totals-mini-btn totals-mini-btn-danger" onclick="CharmsManager.resetAll()">↺ ${T("reset")}</button>
+                </span>
+            </h3>
             <div class="charms-totals-grid">
                 <div class="resource-total" style="display:flex;flex-direction:column;align-items:center;text-align:center;">
-                    <img src="${window.__charmResImg_guide}" alt="" style="width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.25));margin-bottom:4px;" onerror="this.style.display='none'">
                     <div class="label">${T("charmsGuide")}</div>
-                    <div class="value" style="color:#fff;" id="grand_guide">0</div>
+                    <div class="value" style="color:#fff;" id="charmGrand_guide">0</div>
                 </div>
                 <div class="resource-total" style="display:flex;flex-direction:column;align-items:center;text-align:center;">
-                    <img src="${window.__charmResImg_designs}" alt="" style="width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.25));margin-bottom:4px;" onerror="this.style.display='none'">
                     <div class="label">${T("charmsDesign")}</div>
-                    <div class="value" style="color:#ffcc00;" id="grand_design">0</div>
+                    <div class="value" style="color:#ffcc00;" id="charmGrand_design">0</div>
                 </div>
                 <div class="resource-total" style="display:flex;flex-direction:column;align-items:center;text-align:center;">
-                    <img src="${window.__charmResImg_secrets}" alt="" style="width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(0,0,0,0.25));margin-bottom:4px;" onerror="this.style.display='none'">
                     <div class="label">${T("charmsSecrets")}</div>
-                    <div class="value" style="color:#f43f5e;" id="grand_secrets">0</div>
+                    <div class="value" style="color:#f43f5e;" id="charmGrand_secret">0</div>
+                </div>
+                <div class="resource-total" style="display:flex;flex-direction:column;align-items:center;text-align:center;">
+                    <div class="label">${T("power")}</div>
+                    <div class="value" style="color:#5fe016;" id="charmGrand_power">0</div>
                 </div>
             </div>
         </div>

@@ -3,6 +3,13 @@
 // One charm configurator per troop type + quantity (1-6) + "Add to Total".
 // Direct level-based costs (0-16), no steps. Data source: chief_Gear_Charm.json
 // =========================
+// =========================
+// CHARM MATERIAL ICONS
+// =========================
+window.__charmMatImg_secrets = "assets/charms/charmMatImg_secrets.png";
+window.__charmMatImg_guide = "assets/charms/charmMatImg_guide.png";
+window.__charmMatImg_design = "assets/charms/charmMatImg_design.png";
+
 
 const CharmsManager = {
 

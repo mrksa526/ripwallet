@@ -29,6 +29,8 @@ const Router = {
             TrainingManager.init();
         } else if (viewName === "charms" && window.CharmsManager) {
             CharmsManager.init();
+        } else if (viewName === "experts" && window.ExpertsManager) {
+            ExpertsManager.init();
         }
         
         window.scrollTo(0, 0);

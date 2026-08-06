@@ -33,13 +33,19 @@ const ExpertsManager = {
 
     // ── Selection grid ───────────────────────────────────────────────────────
 
+    expertName(ex) {
+        const key = `expertName_${ex.id}`;
+        const t = this.T(key);
+        return t === key ? ex.name : t;
+    },
+
     renderSelectionGrid() {
         const grid = document.getElementById("expertsSelectionGrid");
         if (!grid) return;
         grid.innerHTML = (window.expertsData || []).map(ex => `
             <div class="expert-card" onclick="ExpertsManager.openExpert('${ex.id}')">
-                <img src="${ex.badge}" alt="${ex.name}">
-                <div class="expert-card-name">${ex.name}</div>
+                <img src="${ex.badge}" alt="${this.expertName(ex)}">
+                <div class="expert-card-name">${this.expertName(ex)}</div>
             </div>
         `).join("");
     },
@@ -66,7 +72,7 @@ const ExpertsManager = {
         overview.classList.add("expert-overview-enter");
 
         document.getElementById("expertOverviewPortrait").src = expert.portrait;
-        document.getElementById("expertOverviewName").textContent = expert.name;
+        document.getElementById("expertOverviewName").textContent = this.expertName(expert);
         document.getElementById("expertModeContent").innerHTML = "";
 
         if (!skipSave) this.saveData();
@@ -90,26 +96,22 @@ const ExpertsManager = {
     },
 
     // ── Affinity Calculator ──────────────────────────────────────────────────
-    // expert.levels is an ORDERED list of steps. Milestone levels (10,20,30...)
-    // appear as TWO consecutive steps: one with affinity:0 + advancement:<sigils>
-    // (the sigil cost to unlock the tier-up) and one with the real affinity
-    // cost to continue under the new relationship tier. We operate on step
-    // index, not raw level number, so both sub-steps are addressable.
+    // expert.levels is ONE row per level (0-100). Row i = cost to go from
+    // level i-1 to level i (affinity + sigils). Row 0 is the zero baseline.
 
-    stepLabel(step) {
-        const tag = (step.affinity === 0 && step.advancement > 0) ? ` (${this.T("expertsSigilUnlock")})` : "";
-        return `${this.T("charmsLevel")} ${step.level} — ${step.relationship}${tag}`;
+    levelLabel(row) {
+        return `${this.T("charmsLevel")} ${row.level} — ${row.relationship}`;
     },
 
-    affinityCostBetween(curStep, tgtStep, progress) {
+    affinityCostBetween(curLevel, tgtLevel, progress) {
         const expert = this.getExpert(this.activeExpertId);
         const levels = expert.levels;
         let affinity = 0, sigils = 0;
-        for (let i = curStep + 1; i <= tgtStep; i++) {
-            const step = levels[i];
-            if (!step) continue;
-            affinity += step.affinity;
-            sigils += step.advancement;
+        for (let lv = curLevel + 1; lv <= tgtLevel; lv++) {
+            const row = levels[lv];
+            if (!row) continue;
+            affinity += row.affinity;
+            sigils += row.advancement;
         }
         affinity = Math.max(0, affinity - (progress || 0));
         return { affinity, sigils };
@@ -137,18 +139,18 @@ const ExpertsManager = {
         const a = this.affinity;
         if (a.tgtStep < a.curStep) a.tgtStep = a.curStep;
 
-        const nextStep = levels[a.curStep + 1];
-        const progressMax = nextStep ? nextStep.affinity : 0;
+        const nextRow = levels[a.curStep + 1];
+        const progressMax = nextRow ? nextRow.affinity : 0;
         if (a.progress > progressMax) a.progress = progressMax;
 
         const cost = this.affinityCostBetween(a.curStep, a.tgtStep, a.progress);
         const breakdown = this.materialBreakdown(cost.affinity);
         const mats = window.expertAffinityMaterials || [];
 
-        const stepOptions = (mode, selected, min) => levels.map((step, i) => {
+        const levelOptions = (mode, selected, min) => levels.map((row, i) => {
             if (i < min) return "";
             return `<div class="gear-custom-option ${i === selected ? "active" : ""}" data-value="${i}"
-                onclick="ExpertsManager.setAffinityStep('${mode}',this.dataset.value)">${this.stepLabel(step)}</div>`;
+                onclick="ExpertsManager.setAffinityStep('${mode}',this.dataset.value)">${this.levelLabel(row)}</div>`;
         }).join("");
 
         const materialsHtml = mats.map(m => `
@@ -167,19 +169,19 @@ const ExpertsManager = {
                     <div class="gear-select-wrapper">
                         <label class="gear-select-label">${this.T("expertsCurrentLevel")}</label>
                         <div class="gear-custom-trigger" onclick="CharmsManager.toggleDD(this)">
-                            <span class="gear-selected-text">${this.stepLabel(levels[a.curStep])}</span>
+                            <span class="gear-selected-text">${this.levelLabel(levels[a.curStep])}</span>
                             <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
                         </div>
-                        <div class="gear-custom-dropdown-menu">${stepOptions("cur", a.curStep, 0)}</div>
+                        <div class="gear-custom-dropdown-menu">${levelOptions("cur", a.curStep, 0)}</div>
                     </div>
                     <span class="charm-slot-arrow">➔</span>
                     <div class="gear-select-wrapper">
                         <label class="gear-select-label">${this.T("expertsTargetLevel")}</label>
                         <div class="gear-custom-trigger" onclick="CharmsManager.toggleDD(this)">
-                            <span class="gear-selected-text">${this.stepLabel(levels[a.tgtStep])}</span>
+                            <span class="gear-selected-text">${this.levelLabel(levels[a.tgtStep])}</span>
                             <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
                         </div>
-                        <div class="gear-custom-dropdown-menu">${stepOptions("tgt", a.tgtStep, a.curStep)}</div>
+                        <div class="gear-custom-dropdown-menu">${levelOptions("tgt", a.tgtStep, a.curStep)}</div>
                     </div>
                 </div>
 
@@ -262,7 +264,11 @@ const ExpertsManager = {
 
     selectSkill(id) {
         this.activeSkillId = id;
-        if (!this.skillState[id]) this.skillState[id] = { curLevel: 0, curXp: 0 };
+        if (!this.skillState[id]) {
+            const skill = this.getExpert(this.activeExpertId).skills.find(s => s.id === id);
+            const maxLevel = skill.maxLevel || (window.EXPERT_SKILL_MAX_LEVEL || 5);
+            this.skillState[id] = { curLevel: 0, curXp: 0, tgtLevel: maxLevel };
+        }
         this.renderSkillsCalculator();
         this.saveData();
     },
@@ -270,8 +276,10 @@ const ExpertsManager = {
     renderSkillDetail(skillId) {
         const expert = this.getExpert(this.activeExpertId);
         const skill = expert.skills.find(s => s.id === skillId);
-        const state = this.skillState[skillId] || { curLevel: 0, curXp: 0 };
         const maxLevel = skill.maxLevel || (window.EXPERT_SKILL_MAX_LEVEL || 5);
+        const state = this.skillState[skillId] || { curLevel: 0, curXp: 0, tgtLevel: maxLevel };
+        if (state.tgtLevel === undefined) state.tgtLevel = maxLevel;
+        if (state.tgtLevel < state.curLevel) state.tgtLevel = state.curLevel;
 
         // Cap current xp so it can't surpass the requirement for the next level
         const curTotal = this.xpForLevel(skill, state.curLevel);
@@ -280,12 +288,18 @@ const ExpertsManager = {
         if (state.curLevel >= maxLevel) state.curXp = 0;
         else if (state.curXp > progressCap) state.curXp = progressCap;
 
-        const levelOptions = Array.from({ length: maxLevel + 1 }, (_, lv) =>
+        const curLevelOptions = Array.from({ length: maxLevel + 1 }, (_, lv) =>
             `<div class="gear-custom-option ${lv === state.curLevel ? "active" : ""}" data-value="${lv}"
                 onclick="ExpertsManager.setSkillLevel(${skillId},this.dataset.value)">${this.T("charmsLevel")} ${lv}</div>`
         ).join("");
 
-        const targetTotal = this.xpForLevel(skill, maxLevel);
+        const tgtLevelOptions = Array.from({ length: maxLevel + 1 }, (_, lv) => {
+            if (lv < state.curLevel) return "";
+            return `<div class="gear-custom-option ${lv === state.tgtLevel ? "active" : ""}" data-value="${lv}"
+                onclick="ExpertsManager.setSkillTarget(${skillId},this.dataset.value)">${this.T("charmsLevel")} ${lv}</div>`;
+        }).join("");
+
+        const targetTotal = this.xpForLevel(skill, state.tgtLevel);
         const haveTotal = curTotal.exp + state.curXp;
         const remaining = Math.max(0, targetTotal.exp - haveTotal);
 
@@ -314,7 +328,16 @@ const ExpertsManager = {
                             <span class="gear-selected-text">${state.curLevel}</span>
                             <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
                         </div>
-                        <div class="gear-custom-dropdown-menu">${levelOptions}</div>
+                        <div class="gear-custom-dropdown-menu">${curLevelOptions}</div>
+                    </div>
+                    <span class="charm-slot-arrow">➔</span>
+                    <div class="gear-select-wrapper">
+                        <label class="gear-select-label">${this.T("expertsSkillTargetLevel")}</label>
+                        <div class="gear-custom-trigger" onclick="CharmsManager.toggleDD(this)">
+                            <span class="gear-selected-text">${state.tgtLevel}</span>
+                            <svg class="gear-chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4fc3ff" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>
+                        </div>
+                        <div class="gear-custom-dropdown-menu">${tgtLevelOptions}</div>
                     </div>
                     <div class="gear-select-wrapper">
                         <label class="gear-select-label">${this.T("expertsCurrentXp")} (${this.T("expertsMax")}: ${this.nf(progressCap)})</label>
@@ -324,7 +347,13 @@ const ExpertsManager = {
                 </div>
                 <div class="expert-calc-results">
                     <div class="resource-total"><div class="label">${this.T("expertsXpNeeded")}</div><div class="value" style="color:#4fc3ff;">${this.nf(remaining)}</div></div>
-                    <div class="resource-total"><div class="label">${this.T("expertsBooksNeeded")}</div><div class="value" style="color:#ffcc00;">${this.nf(booksNeeded)}</div></div>
+                    <div class="resource-total">
+                        <div class="label" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                            <img src="${window.expertBookIcon}" alt="" style="width:22px;height:22px;object-fit:contain;">
+                            <span>${this.T("expertsBooksNeeded")}</span>
+                        </div>
+                        <div class="value" style="color:#ffcc00;">${this.nf(booksNeeded)}</div>
+                    </div>
                     <div class="resource-total"><div class="label">${this.T("expertsEta")}</div><div class="value" style="color:#5fe016;">${etaText}</div></div>
                 </div>
                 <div class="expert-placeholder-notice">⚠ ${this.T("expertsPlaceholderNotice")}</div>
@@ -333,8 +362,16 @@ const ExpertsManager = {
     },
 
     setSkillLevel(skillId, value) {
-        this.skillState[skillId].curLevel = parseInt(value, 10);
+        const lv = parseInt(value, 10);
+        this.skillState[skillId].curLevel = lv;
         this.skillState[skillId].curXp = 0;
+        if (this.skillState[skillId].tgtLevel < lv) this.skillState[skillId].tgtLevel = lv;
+        this.renderSkillDetail(skillId);
+        this.saveData();
+    },
+
+    setSkillTarget(skillId, value) {
+        this.skillState[skillId].tgtLevel = parseInt(value, 10);
         this.renderSkillDetail(skillId);
         this.saveData();
     },
